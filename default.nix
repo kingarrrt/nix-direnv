@@ -9,7 +9,7 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   postPatch = ''
-    sed -i "2iNIX_BIN_PREFIX=${nix}/bin/" direnvrc
+    sed -i "2iNIX_BIN_PREFIX=${nix}/bin" direnvrc
   '';
 
   # Makefile is purely for lint/test
