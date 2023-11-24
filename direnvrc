@@ -283,8 +283,8 @@ use_flake() {
     _nix_direnv_fatal "flake directory \"$flake_dir\" not found"
   fi
 
-  watch_file ".envrc" "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" \
-    "$flake_dir/flake.nix" "$flake_dir/flake.lock" "$flake_dir/devshell.toml"
+  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" "$flake_dir/flake.nix" \
+    "$flake_dir/flake.lock" "$flake_dir/devshell.toml"
 
   local layout_dir profile
   layout_dir=$(direnv_layout_dir)
@@ -443,7 +443,7 @@ use_nix() {
     esac
   done
 
-  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" ".envrc" "shell.nix" "default.nix"
+  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" "shell.nix" "default.nix"
 
   local need_update=0
   local watches
@@ -501,8 +501,4 @@ use_nix() {
 
   _nix_import_env "$profile_rc"
 
-
-  if [[ "$#" == 0 ]]; then
-    watch_file default.nix shell.nix
-  fi
 }
