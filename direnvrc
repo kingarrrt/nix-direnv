@@ -196,8 +196,6 @@ _nix_import_env() {
 _nix_add_gcroot() {
   local storepath=$1
   local symlink=$2
-
-  ln -fsn "$storepath" "$symlink"
   nix-store --realise "$storepath" --add-root "$symlink" >/dev/null
 }
 
