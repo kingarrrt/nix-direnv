@@ -23,7 +23,8 @@ _nix_direnv_warning() {
 
 _nix_direnv_fatal() {
   log_error "${_NIX_DIRENV_LOG_PREFIX}$*"
-  return 1
+  # exit 1 rather than return 1 because we may not be running in strict mode
+  exit 1
 }
 
 _nix_direnv_preflight () {
@@ -268,9 +269,6 @@ use_flake() {
   _nix_direnv_preflight
 
   flake_expr="${1:-.}"
-  flake_dir="${flake_expr%#*}"
-  flake_dir=${flake_dir#"path:"}
-
   if [[ "$flake_expr" = -* ]]; then
     local message="the first argument must be a flake expression"
     if [[ -z "${2:-}" ]]; then
@@ -279,14 +277,14 @@ use_flake() {
     _nix_direnv_fatal "$message"
   fi
 
-  local files_to_watch
-  files_to_watch=(".envrc" "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc")
-
-  if [[ -d "$flake_dir" ]]; then
-    files_to_watch+=("$flake_dir/flake.nix" "$flake_dir/flake.lock" "$flake_dir/devshell.toml")
+  flake_dir="${flake_expr%#*}"
+  flake_dir=${flake_dir#"path:"}
+  if [[ ! -d "$flake_dir" ]]; then
+    _nix_direnv_fatal "flake directory \"$flake_dir\" not found"
   fi
 
-  watch_file "${files_to_watch[@]}"
+  watch_file ".envrc" "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" \
+    "$flake_dir/flake.nix" "$flake_dir/flake.lock" "$flake_dir/devshell.toml"
 
   local layout_dir profile
   layout_dir=$(direnv_layout_dir)

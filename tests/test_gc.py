@@ -61,5 +61,5 @@ class TestGc(TestCase):
         for symlink in inputs:
             assert symlink.is_dir()
 
-        self.setup_envrc("use flake --impure", strict_env=strict_env)
+        self.setup_envrc("use flake . --impure", strict_env=strict_env)
         self.common_test_clean()
