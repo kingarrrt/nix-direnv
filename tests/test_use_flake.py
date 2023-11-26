@@ -65,3 +65,15 @@ class TestUseFlake(TestCase):
         assert len(self.cache_dirs) == 1
         self._force_refresh()
         assert len(self.cache_dirs) == 1
+
+    @pytest.mark.parametrize("strict_env", [False, True])
+    def test_manual_reload(self, strict_env: bool) -> None:
+        self.setup_envrc("nix_direnv_manual_reload\nuse flake", strict_env=strict_env)
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr
+        self.run("sed", "-i", "1i#", "flake.nix")
+        result = self.direnv_exec("true")
+        assert "cache is out of date" in result.stderr
+        self.run(self.layout_dir / "bin" / "nix-direnv-reload")
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr

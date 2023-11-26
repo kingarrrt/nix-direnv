@@ -54,43 +54,26 @@ _nix_direnv_preflight () {
     _nix_direnv_fatal "nix version ${BASH_REMATCH[0]} is older than the required 2.4."
   fi
 
+  # if manually reloading create a script to do the reload in $(direnv_layout_dir)/bin
+  local bin
+  bin="$(direnv_layout_dir)/bin"
   if [[ $_nix_direnv_manual_reload -eq 1 ]]; then
-    local layout_dir bin script
-    layout_dir=$(direnv_layout_dir)
-    bin="${layout_dir}/bin"
     PATH_add "$bin"
-    script="${bin}/nix-direnv-reload"
+    local script="${bin}/nix-direnv-reload"
     if [[ ! -f "$script" ]]; then
-      mkdir -p "$layout_dir/bin"
-      # N.B. This script relies on variable expansion in *this* shell.
-      # (i.e. The written out file will have the variables expanded)
-      # If the source path changes, the script becomes broken.
-      # Because direnv_layout_dir is user controlled,
-      # we can't assume to be able to reverse it to get the source dir
-      # So there's little to be done about this.
-      cat > "$script" <<-EOF
+      mkdir -p "$bin"
+      cat > "$script" <<"EOF"
 #!/usr/bin/env bash
-set -e
-if [[ ! -d "$PWD" ]]; then
-  echo "Cannot find source directory; Did you move it?"
-  echo "(Looking for "$PWD")"
-  echo 'Cannot force reload with this script - use "direnv reload" manually and then try again'
-  exit 1
-fi
-
-# rebuild the cache forcefully
-_nix_direnv_force_reload=1 direnv exec "$PWD" true
-
-# Update the mtime for .envrc.
-# This will cause direnv to reload again - but without re-building.
-touch "$PWD/.envrc"
-
-# Also update the timestamp of whatever profile_rc we have.
-# This makes sure that we know we are up to date.
-touch -r "$PWD/.envrc" "${layout_dir}"/*.rc
+set -eu
+touch $(dirname "$(dirname "${BASH_SOURCE[0]}")")/.manual_reload
+direnv reload
 EOF
       chmod +x "$script"
     fi
+  elif [[ -d "$bin" ]]
+  then
+    # otherwise clean up unwanted bin dir
+    rm -rf "$bin"
   fi
 
 }
@@ -191,23 +174,24 @@ _nix_direnv_use() {
   hash=$(echo "$(_nix hash file "${watches[@]}")" "$profile_name" \
     | _nix hash file --base32 /dev/stdin)
 
-  local layout_dir env profile profile_rc
+  local layout_dir env current profile profile_rc manual_reload
   layout_dir=$(direnv_layout_dir)
   env="${layout_dir}/${hash}"
-  profile="${env}/${profile_name}-profile"
+  current="${layout_dir}/current"
+  profile="${env}/profile"
   profile_rc="${profile}.rc"
-
-  # watch the cached env to force a rebuild on its removal
-  watch_file "$env"
+  manual_reload="${layout_dir}/.manual_reload"
 
   if [[ ! -d "$env" ]]; then
-    if [[ $_nix_direnv_manual_reload -eq 1 && -z "${_nix_direnv_force_reload-}" ]]; then
-      # shellcheck disable=2012
-      if [[ $(ls "$layout_dir" | wc -l) -gt 1 ]]; then
-        _nix_direnv_warning "cache is out of date. use \"nix-direnv-reload\" to reload"
-      else
-        _nix_direnv_warning "cache does not exist. use \"nix-direnv-reload\" to create it"
-      fi
+    # shellcheck disable=2012
+    if [[
+      $_nix_direnv_manual_reload -eq 1
+      && -d "$current"
+      && ! -f "$manual_reload"
+    ]]; then
+      # for manual reload warn and use the most recent environment
+      _nix_direnv_warning "cache is out of date. use \"nix-direnv-reload\" to reload"
+      profile_rc="${current}/profile.rc"
 
     else
       # clean old gc roots, layout_dir will not exist on first run
@@ -243,6 +227,13 @@ _nix_direnv_use() {
         done
       fi
 
+      # make a link to the current env for use by stale env when manually reloading
+      ln --force --no-dereference --symbolic --relative "$env" "$current"
+
+      # unconditionally remove manual reload sentinel - it won't be there if not
+      # manually reloading hence "-f"
+      rm -f "$manual_reload"
+
       _nix_direnv_info "renewed cache"
     fi
   else
@@ -250,53 +241,52 @@ _nix_direnv_use() {
     _nix_direnv_info "using cached dev shell"
   fi
 
+  # watch the cached env to force a rebuild if it is removed
+  watch_file "$env"
+
   # import profile
-  if [ -d "$env" ]; then
+  local old_nix_build_top=${NIX_BUILD_TOP:-__UNSET__}
+  local old_tmp=${TMP:-__UNSET__}
+  local old_tmpdir=${TMPDIR:-__UNSET__}
+  local old_temp=${TEMP:-__UNSET__}
+  local old_tempdir=${TEMPDIR:-__UNSET__}
+  local old_xdg_data_dirs=${XDG_DATA_DIRS:-}
 
-    local old_nix_build_top=${NIX_BUILD_TOP:-__UNSET__}
-    local old_tmp=${TMP:-__UNSET__}
-    local old_tmpdir=${TMPDIR:-__UNSET__}
-    local old_temp=${TEMP:-__UNSET__}
-    local old_tempdir=${TEMPDIR:-__UNSET__}
-    local old_xdg_data_dirs=${XDG_DATA_DIRS:-}
-
-    # to support nix 2.10
-    # https://github.com/NixOS/nix/issues/6809
-    if set +o | grep -q nounset \
-      && [[ $(nix eval --expr 'builtins.compareVersions builtins.nixVersion "2.11"') -lt 0 ]]; then
-      set +u
-      eval "$(< "$profile_rc")"
-      set -u
-    else
-      eval "$(< "$profile_rc")"
-    fi
-
-    # `nix print-dev-env` will create a temporary directory and use it as TMPDIR
-    # We cannot rely on this directory being available at all times,
-    # as it may be garbage collected.
-    # Instead - just remove it immediately.
-    # Use recursive & force as it may not be empty.
-    if [[ -n "${NIX_BUILD_TOP+x}" && "$NIX_BUILD_TOP" == */nix-shell.* && -d "$NIX_BUILD_TOP" ]]; then
-      rm -rf "$NIX_BUILD_TOP"
-    fi
-
-    _nix_export_or_unset NIX_BUILD_TOP "$old_nix_build_top"
-    _nix_export_or_unset TMP "$old_tmp"
-    _nix_export_or_unset TMPDIR "$old_tmpdir"
-    _nix_export_or_unset TEMP "$old_temp"
-    _nix_export_or_unset TEMPDIR "$old_tempdir"
-    local new_xdg_data_dirs=${XDG_DATA_DIRS:-}
-    export XDG_DATA_DIRS=
-    local IFS=:
-    for dir in $new_xdg_data_dirs${old_xdg_data_dirs:+:}$old_xdg_data_dirs; do
-      dir="${dir%/}" # remove trailing slashes
-      if [[ :$XDG_DATA_DIRS: = *:$dir:* ]]; then
-        continue # already present, skip
-      fi
-      XDG_DATA_DIRS="$XDG_DATA_DIRS${XDG_DATA_DIRS:+:}$dir"
-    done
-
+  # to support nix 2.10
+  # https://github.com/NixOS/nix/issues/6809
+  if set +o | grep -q nounset \
+    && [[ $(nix eval --expr 'builtins.compareVersions builtins.nixVersion "2.11"') -lt 0 ]]; then
+    set +u
+    eval "$(< "$profile_rc")"
+    set -u
+  else
+    eval "$(< "$profile_rc")"
   fi
+
+  # `nix print-dev-env` will create a temporary directory and use it as TMPDIR
+  # We cannot rely on this directory being available at all times,
+  # as it may be garbage collected.
+  # Instead - just remove it immediately.
+  # Use recursive & force as it may not be empty.
+  if [[ -n "${NIX_BUILD_TOP+x}" && "$NIX_BUILD_TOP" == */nix-shell.* && -d "$NIX_BUILD_TOP" ]]; then
+    rm -rf "$NIX_BUILD_TOP"
+  fi
+
+  _nix_export_or_unset NIX_BUILD_TOP "$old_nix_build_top"
+  _nix_export_or_unset TMP "$old_tmp"
+  _nix_export_or_unset TMPDIR "$old_tmpdir"
+  _nix_export_or_unset TEMP "$old_temp"
+  _nix_export_or_unset TEMPDIR "$old_tempdir"
+  local new_xdg_data_dirs=${XDG_DATA_DIRS:-}
+  export XDG_DATA_DIRS=
+  local IFS=:
+  for dir in $new_xdg_data_dirs${old_xdg_data_dirs:+:}$old_xdg_data_dirs; do
+    dir="${dir%/}" # remove trailing slashes
+    if [[ :$XDG_DATA_DIRS: = *:$dir:* ]]; then
+      continue # already present, skip
+    fi
+    XDG_DATA_DIRS="$XDG_DATA_DIRS${XDG_DATA_DIRS:+:}$dir"
+  done
 
 }
 
