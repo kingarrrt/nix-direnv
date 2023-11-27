@@ -33,7 +33,7 @@ There are different ways to install nix-direnv, pick your favourite:
 
 Note that while the home-manager integration is recommended,
 some use cases require the use of features only present in some versions of nix-direnv.
-It is much harder to control the version of nix-direnv installedwith this method.
+It is much harder to control the version of nix-direnv installed with this method.
 If you require such specific control, please use another method of installing nix-direnv.
 
 In `$HOME/.config/nixpkgs/home.nix` add
@@ -62,7 +62,7 @@ manage your shell with `programs.<your_shell>.enable = true`.
 <details>
   <summary>Direnv's source_url</summary>
 
-### Direnv source\_url
+### Direnv source_url
 
 Put the following lines in your `.envrc`:
 
@@ -79,9 +79,9 @@ fi
 
 ### Via system configuration on NixOS
 
-For NixOS 23.05+ all that's required is 
+For NixOS 23.05+ all that's required is
 
-```Nix 
+```Nix
 {
   programs.direnv.enable = true;
 }
@@ -123,7 +123,7 @@ source $HOME/.nix-profile/share/nix-direnv/direnvrc
 ```
 
 </details>
-  
+
   <details>
   <summary>With `nix profile`</summary>
 
@@ -149,7 +149,7 @@ source $HOME/.nix-profile/share/nix-direnv/direnvrc
 ### From source
 
 Clone the repository to some directory
-and then source the direnvrc from this repository in your own 
+and then source the direnvrc from this repository in your own
 `~/.config/direnv/direnvrc`:
 
 ```bash
@@ -195,7 +195,7 @@ $ echo "use nix foo.nix" >> .envrc
 
 nix-direnv also comes with an alternative `use_flake` implementation.
 The code is tested and does work but the upstream flake api is not finalized,
-so we we cannot guarantee stability after a nix upgrade.
+so we cannot guarantee stability after a nix upgrade.
 
 Like `use_nix`,
 our `use_flake` will prevent garbage collection of downloaded packages,
@@ -255,7 +255,7 @@ Due to historical reasons, the argument parsing emulates `nix shell`.
 This leads to some limitations in what we can reasonably parse.
 
 Currently, all single-word arguments and some well-known double arguments
-will be interpeted or passed along.
+will be interpreted or passed along.
 
 #### Manual reload of the nix environment
 
