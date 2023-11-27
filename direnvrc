@@ -54,19 +54,21 @@ _nix_direnv_preflight () {
     _nix_direnv_fatal "nix version ${BASH_REMATCH[0]} is older than the required 2.4."
   fi
 
-  local layout_dir
-  layout_dir=$(direnv_layout_dir)
-
-  if [[ ! -d "$layout_dir/bin" ]]; then
-    mkdir -p "$layout_dir/bin"
-  fi
-  # N.B. This script relies on variable expansion in *this* shell.
-  # (i.e. The written out file will have the variables expanded)
-  # If the source path changes, the script becomes broken.
-  # Because direnv_layout_dir is user controlled,
-  # we can't assume to be able to reverse it to get the source dir
-  # So there's little to be done about this.
-  cat > "${layout_dir}/bin/nix-direnv-reload" <<-EOF
+  if [[ $_nix_direnv_manual_reload -eq 1 ]]; then
+    local layout_dir bin script
+    layout_dir=$(direnv_layout_dir)
+    bin="${layout_dir}/bin"
+    PATH_add "$bin"
+    script="${bin}/nix-direnv-reload"
+    if [[ ! -f "$script" ]]; then
+      mkdir -p "$layout_dir/bin"
+      # N.B. This script relies on variable expansion in *this* shell.
+      # (i.e. The written out file will have the variables expanded)
+      # If the source path changes, the script becomes broken.
+      # Because direnv_layout_dir is user controlled,
+      # we can't assume to be able to reverse it to get the source dir
+      # So there's little to be done about this.
+      cat > "$script" <<-EOF
 #!/usr/bin/env bash
 set -e
 if [[ ! -d "$PWD" ]]; then
@@ -87,12 +89,10 @@ touch "$PWD/.envrc"
 # This makes sure that we know we are up to date.
 touch -r "$PWD/.envrc" "${layout_dir}"/*.rc
 EOF
-
-  if [[ ! -x "${layout_dir}/bin/nix-direnv-reload" ]]; then
-    chmod +x "${layout_dir}/bin/nix-direnv-reload"
+      chmod +x "$script"
+    fi
   fi
 
-  PATH_add "${layout_dir}/bin"
 }
 
 # Usage: nix_direnv_version <version_at_least>
@@ -308,6 +308,7 @@ use_flake() {
       _nix_clean_old_gcroots "$layout_dir"
 
       # We need to update our cache
+      mkdir -p "$layout_dir"
       local tmp_profile="${layout_dir}/flake-profile.$$"
       local tmp_profile_rc
       tmp_profile_rc=$(_nix print-dev-env \
@@ -319,7 +320,7 @@ use_flake() {
 
       # also add garbage collection root for source
       local flake_input_paths
-      mkdir -p "$flake_inputs"
+      mkdir "$flake_inputs"
       flake_input_paths=$(_nix flake archive \
         --json --no-write-lock-file \
         "$flake_dir")
@@ -464,6 +465,7 @@ use_nix() {
         fi
       fi
 
+      mkdir -p "$layout_dir"
       tmp_profile_rc=$(_nix \
                        print-dev-env \
                        --profile "$tmp_profile" \
