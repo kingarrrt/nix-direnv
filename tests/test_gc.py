@@ -21,11 +21,13 @@ class TestGc(TestCase):
 
     def common_test_clean(self) -> None:
         self.direnv_exec("hello")
-        files = [path for path in (self.path / ".direnv").iterdir() if path.is_file()]
-        rcs = [f for f in files if f.match("*.rc")]
-        profiles = [f for f in files if not f.match("*.rc")]
-        assert len(rcs) == 1, files
-        assert len(profiles) == 1, files
+        dirs = [path for path in (self.path / ".direnv" ).iterdir() if path.is_dir()]
+        for directory in dirs:
+            files =[path for path in directory.iterdir() if path.is_file()]
+            rcs = [f for f in files if f.match("*.rc")]
+            profiles = [f for f in files if not f.match("*.rc")]
+            assert len(rcs) == 1, files
+            assert len(profiles) == 1, files
 
     @pytest.mark.parametrize("strict_env", [False, True])
     def test_use_nix(self, strict_env: bool) -> None:
@@ -48,7 +50,8 @@ class TestGc(TestCase):
     def test_use_flake(self, strict_env: bool) -> None:
         self.setup_envrc("use flake", strict_env=strict_env)
         self.common_test()
-        inputs = list((self.path / ".direnv/flake-inputs").iterdir())
+        dirs = [path for path in (self.path / ".direnv" ).iterdir() if path.is_dir()]
+        inputs = list((dirs[0] / "flake-inputs").iterdir())
         flake_inputs = self._parse_inputs(
             json.loads(
                 self.nix_run(

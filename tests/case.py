@@ -103,3 +103,15 @@ class TestCase:
         assert result.stdout == "OK"
         assert "renewed cache" in result.stderr
         return result
+
+    def assert_usage(self, file: str) -> None:
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr
+        result = self.direnv_exec("true")
+        assert "using cached dev shell" in result.stderr
+        self.run("touch", ".envrc")
+        result = self.direnv_exec("true")
+        assert "using cached dev shell" in result.stderr
+        self.run("sed", "-i", "1i#", file)
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr

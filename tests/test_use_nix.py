@@ -9,6 +9,11 @@ from .case import TestCase
 
 class TestUseNix(TestCase):
     @pytest.mark.parametrize("strict_env", [False, True])
+    def test_usage(self, strict_env: bool) -> None:
+        self.setup_envrc("use nix", strict_env=strict_env)
+        self.assert_usage("shell.nix")
+
+    @pytest.mark.parametrize("strict_env", [False, True])
     def test_attrs(self, strict_env: bool) -> None:
         self.setup_envrc("use nix -A subshell", strict_env=strict_env)
         self.assert_direnv_var("THIS_IS_A_SUBSHELL")

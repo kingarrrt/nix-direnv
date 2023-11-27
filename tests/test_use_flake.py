@@ -11,13 +11,7 @@ class TestUseFlake(TestCase):
     @pytest.mark.parametrize("strict_env", [False, True])
     def test_usage(self, strict_env: bool) -> None:
         self.setup_envrc("use flake", strict_env=strict_env)
-        result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
-        result = self.direnv_exec("true")
-        assert "using cached dev shell" in result.stderr
-        self.run("touch", ".envrc")
-        result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
+        self.assert_usage("flake.nix")
 
     @pytest.mark.parametrize("strict_env", [False, True])
     def test_bad_usage(self, strict_env: bool) -> None:

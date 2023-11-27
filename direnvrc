@@ -126,71 +126,16 @@ nix_direnv_version() {
   fi
 }
 
-_nix_export_or_unset() {
-  local key=$1 value=$2
-  if [[ "$value" == __UNSET__ ]]; then
-    unset "$key"
-  else
-    export "$key=$value"
-  fi
+nix_direnv_watch_file() {
+  # shellcheck disable=2016
+  # deprecate this in the next version.
+  # log_error '`nix_direnv_watch_file` is deprecated - use `watch_file`'
+  watch_file "$@"
 }
 
-_nix_import_env() {
-  local profile_rc=$1
-
-  local old_nix_build_top=${NIX_BUILD_TOP:-__UNSET__}
-  local old_tmp=${TMP:-__UNSET__}
-  local old_tmpdir=${TMPDIR:-__UNSET__}
-  local old_temp=${TEMP:-__UNSET__}
-  local old_tempdir=${TEMPDIR:-__UNSET__}
-  local old_xdg_data_dirs=${XDG_DATA_DIRS:-}
-
-  # On the first run in manual mode, the profile_rc does not exist.
-  if [[ ! -e "$profile_rc" ]]; then
-    return
-  fi
-
-  # to support nix 2.10
-  # https://github.com/NixOS/nix/issues/6809
-  if set +o | grep -q nounset \
-    && [[ $(nix eval --expr 'builtins.compareVersions builtins.nixVersion "2.11"') -lt 0 ]]; then
-    set +u
-    eval "$(< "$profile_rc")"
-    set -u
-  else
-    eval "$(< "$profile_rc")"
-  fi
-
-  # `nix print-dev-env` will create a temporary directory and use it as TMPDIR
-  # We cannot rely on this directory being available at all times,
-  # as it may be garbage collected.
-  # Instead - just remove it immediately.
-  # Use recursive & force as it may not be empty.
-  if [[ -n "${NIX_BUILD_TOP+x}" && "$NIX_BUILD_TOP" == */nix-shell.* && -d "$NIX_BUILD_TOP" ]]; then
-    rm -rf "$NIX_BUILD_TOP"
-  fi
-
-  _nix_export_or_unset NIX_BUILD_TOP "$old_nix_build_top"
-  _nix_export_or_unset TMP "$old_tmp"
-  _nix_export_or_unset TMPDIR "$old_tmpdir"
-  _nix_export_or_unset TEMP "$old_temp"
-  _nix_export_or_unset TEMPDIR "$old_tempdir"
-  local new_xdg_data_dirs=${XDG_DATA_DIRS:-}
-  export XDG_DATA_DIRS=
-  local IFS=:
-  for dir in $new_xdg_data_dirs${old_xdg_data_dirs:+:}$old_xdg_data_dirs; do
-    dir="${dir%/}" # remove trailing slashes
-    if [[ :$XDG_DATA_DIRS: = *:$dir:* ]]; then
-      continue # already present, skip
-    fi
-    XDG_DATA_DIRS="$XDG_DATA_DIRS${XDG_DATA_DIRS:+:}$dir"
-  done
-}
-
-_nix_add_gcroot() {
-  local storepath=$1
-  local symlink=$2
-  _nix build --out-link "$symlink" "$storepath"
+_nix_direnv_manual_reload=0
+nix_direnv_manual_reload() {
+  _nix_direnv_manual_reload=1
 }
 
 _nix_clean_old_gcroots() {
@@ -200,61 +145,148 @@ _nix_clean_old_gcroots() {
   rm -f "$layout_dir"/{nix,flake}-profile*
 }
 
-_nix_argsum_suffix() {
-  local out checksum
-  if [ -n "$1" ]; then
+_nix_add_gcroot() {
+  local storepath=$1
+  local symlink=$2
+  _nix build --out-link "$symlink" "$storepath"
+}
 
-    if has sha1sum; then
-      out=$(sha1sum <<< "$1")
-    elif has shasum; then
-      out=$(shasum <<< "$1")
-    else
-      # degrade gracefully both tools are not present
-      return
-    fi
-    read -r checksum _ <<< "$out"
-    echo "-$checksum"
+_nix_export_or_unset() {
+  local key=$1 value=$2
+  if [[ "$value" == __UNSET__ ]]; then
+    unset "$key"
+  else
+    export "$key=$value"
   fi
 }
 
-nix_direnv_watch_file() {
-  # shellcheck disable=2016
-  # deprecate this in the next version.
-  #log_error '`nix_direnv_watch_file` is deprecated - use `watch_file`'
-  watch_file "$@"
-}
+_nix_direnv_use() {
+  local profile_name=$1
+  shift
 
-_nix_direnv_watches() {
-  local -n _watches=$1
-  if [[ -z "${DIRENV_WATCHES-}" ]]; then
-    return
-  fi
+  # default watches
+  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" "${BASH_SOURCE[0]}"
+
+  local watches hash
+  local regex='"[Pp]ath": "(.+)"$'
   while IFS= read -r line; do
-    local regex='"[Pp]ath": "(.+)"$'
     if [[ "$line" =~ $regex ]]; then
       local path="${BASH_REMATCH[1]}"
-      if [[ "$path" == "${XDG_DATA_HOME:-${HOME:-/var/empty}/.local/share}/direnv/allow/"* ]]; then
+      if [[
+        ! -f "$path"
+        || "$path" == "${XDG_DATA_HOME:-${HOME:-/var/empty}/.local/share}/direnv/allow/"*
+      ]]; then
         continue
       fi
       # expand new lines and other json escapes
       # shellcheck disable=2059
       path=$(printf "$path")
-      _watches+=("$path")
+      watches+=("$path")
     fi
   done < <(direnv show_dump "${DIRENV_WATCHES}")
-}
+  # hash watched files + profile_name, profile_name needed for use_nix which adds a
+  # version string to it
+  hash=$(echo "$(_nix hash file "${watches[@]}")" "$profile_name" \
+    | _nix hash file --base32 /dev/stdin)
 
-_nix_direnv_manual_reload=0
-nix_direnv_manual_reload() {
-  _nix_direnv_manual_reload=1
-}
+  local layout_dir env profile profile_rc
+  layout_dir=$(direnv_layout_dir)
+  env="${layout_dir}/${hash}"
+  profile="${env}/${profile_name}-profile"
+  profile_rc="${profile}.rc"
 
-_nix_direnv_warn_manual_reload() {
-  if [[ -e "$1" ]]; then
-    _nix_direnv_warning "cache is out of date. use \"nix-direnv-reload\" to reload"
+  # watch the cached env to force a rebuild on its removal
+  watch_file "$env"
+
+  if [[ ! -d "$env" ]]; then
+    if [[ $_nix_direnv_manual_reload -eq 1 && -z "${_nix_direnv_force_reload-}" ]]; then
+      # shellcheck disable=2012
+      if [[ $(ls "$layout_dir" | wc -l) -gt 1 ]]; then
+        _nix_direnv_warning "cache is out of date. use \"nix-direnv-reload\" to reload"
+      else
+        _nix_direnv_warning "cache does not exist. use \"nix-direnv-reload\" to create it"
+      fi
+
+    else
+      _nix_clean_old_gcroots "${layout_dir}"
+
+      # We need to update our cache
+      mkdir -p "$env"
+      local tmp_profile="${profile}.$$"
+      _nix print-dev-env --profile "$tmp_profile" "$@" >"$profile_rc"
+
+      _nix_add_gcroot "$tmp_profile" "$profile"
+      rm -f "$tmp_profile"*
+
+      # if flake add garbage collection root for sources
+      if [[ "$profile_name" == flake ]]; then
+        local flake_inputs="${env}/flake-inputs"
+        mkdir "$flake_inputs"
+        flake_input_paths=$(_nix flake archive \
+          --json --no-write-lock-file \
+          "$flake_dir")
+        while [[ "$flake_input_paths" =~ /nix/store/[^\"]+ ]]; do
+          local store_path="${BASH_REMATCH[0]}"
+          _nix_add_gcroot "${store_path}" "${flake_inputs}/${store_path##*/}"
+          flake_input_paths="${flake_input_paths/${store_path}/}"
+        done
+      fi
+
+      _nix_direnv_info "renewed cache"
+    fi
   else
-    _nix_direnv_warning "cache does not exist. use \"nix-direnv-reload\" to create it"
+    # Our cache is valid, use that"
+    _nix_direnv_info "using cached dev shell"
   fi
+
+  # import profile
+  if [ -d "$env" ]; then
+
+    local old_nix_build_top=${NIX_BUILD_TOP:-__UNSET__}
+    local old_tmp=${TMP:-__UNSET__}
+    local old_tmpdir=${TMPDIR:-__UNSET__}
+    local old_temp=${TEMP:-__UNSET__}
+    local old_tempdir=${TEMPDIR:-__UNSET__}
+    local old_xdg_data_dirs=${XDG_DATA_DIRS:-}
+
+    # to support nix 2.10
+    # https://github.com/NixOS/nix/issues/6809
+    if set +o | grep -q nounset \
+      && [[ $(nix eval --expr 'builtins.compareVersions builtins.nixVersion "2.11"') -lt 0 ]]; then
+      set +u
+      eval "$(< "$profile_rc")"
+      set -u
+    else
+      eval "$(< "$profile_rc")"
+    fi
+
+    # `nix print-dev-env` will create a temporary directory and use it as TMPDIR
+    # We cannot rely on this directory being available at all times,
+    # as it may be garbage collected.
+    # Instead - just remove it immediately.
+    # Use recursive & force as it may not be empty.
+    if [[ -n "${NIX_BUILD_TOP+x}" && "$NIX_BUILD_TOP" == */nix-shell.* && -d "$NIX_BUILD_TOP" ]]; then
+      rm -rf "$NIX_BUILD_TOP"
+    fi
+
+    _nix_export_or_unset NIX_BUILD_TOP "$old_nix_build_top"
+    _nix_export_or_unset TMP "$old_tmp"
+    _nix_export_or_unset TMPDIR "$old_tmpdir"
+    _nix_export_or_unset TEMP "$old_temp"
+    _nix_export_or_unset TEMPDIR "$old_tempdir"
+    local new_xdg_data_dirs=${XDG_DATA_DIRS:-}
+    export XDG_DATA_DIRS=
+    local IFS=:
+    for dir in $new_xdg_data_dirs${old_xdg_data_dirs:+:}$old_xdg_data_dirs; do
+      dir="${dir%/}" # remove trailing slashes
+      if [[ :$XDG_DATA_DIRS: = *:$dir:* ]]; then
+        continue # already present, skip
+      fi
+      XDG_DATA_DIRS="$XDG_DATA_DIRS${XDG_DATA_DIRS:+:}$dir"
+    done
+
+  fi
+
 }
 
 use_flake() {
@@ -275,78 +307,15 @@ use_flake() {
     _nix_direnv_fatal "flake directory \"$flake_dir\" not found"
   fi
 
-  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" "$flake_dir/flake.nix" \
-    "$flake_dir/flake.lock" "$flake_dir/devshell.toml"
+  watch_file "$flake_dir/flake.nix" "$flake_dir/flake.lock" "$flake_dir/devshell.toml"
 
-  local layout_dir profile
-  layout_dir=$(direnv_layout_dir)
-  profile="${layout_dir}/flake-profile$(_nix_argsum_suffix "$flake_expr")"
-  local profile_rc="${profile}.rc"
-  local flake_inputs="${layout_dir}/flake-inputs/"
-
-  local need_update=0
-  local watches
-  _nix_direnv_watches watches
-  local file=
-  for file in "${watches[@]}"; do
-    if [[ "$file" -nt "$profile_rc" ]]; then
-      need_update=1
-      break
-    fi
-  done
-
-
-  if [[ ! -e "$profile"
-     || ! -e "$profile_rc"
-     || $need_update -eq 1
-     ]];
-  then
-    if [[ $_nix_direnv_manual_reload -eq 1 && -z "${_nix_direnv_force_reload-}" ]]; then
-      _nix_direnv_warn_manual_reload "$profile_rc"
-
-    else
-      _nix_clean_old_gcroots "$layout_dir"
-
-      # We need to update our cache
-      mkdir -p "$layout_dir"
-      local tmp_profile="${layout_dir}/flake-profile.$$"
-      local tmp_profile_rc
-      tmp_profile_rc=$(_nix print-dev-env \
-        --profile "$tmp_profile" "$@")
-
-      echo "$tmp_profile_rc" > "$profile_rc"
-      _nix_add_gcroot "$tmp_profile" "$profile"
-      rm -f "$tmp_profile" "$tmp_profile"*
-
-      # also add garbage collection root for source
-      local flake_input_paths
-      mkdir "$flake_inputs"
-      flake_input_paths=$(_nix flake archive \
-        --json --no-write-lock-file \
-        "$flake_dir")
-
-      while [[ "$flake_input_paths" =~ /nix/store/[^\"]+ ]]; do
-        local store_path="${BASH_REMATCH[0]}"
-        _nix_add_gcroot "${store_path}" "${flake_inputs}/${store_path##*/}"
-        flake_input_paths="${flake_input_paths/${store_path}/}"
-      done
-
-      _nix_direnv_info "renewed cache"
-    fi
-  else
-    # Our cache is valid, use that"
-    _nix_direnv_info "using cached dev shell"
-
-  fi
-
-  _nix_import_env "$profile_rc"
+  _nix_direnv_use flake "$@"
 }
 
 use_nix() {
   _nix_direnv_preflight
 
-  local layout_dir path version
-  layout_dir=$(direnv_layout_dir)
+  local path version
   if path=$(_nix eval --impure --expr "<nixpkgs>" 2>/dev/null); then
     if [[ -f "${path}/.version-suffix" ]]; then
       version=$(< "${path}/.version-suffix")
@@ -367,14 +336,10 @@ use_nix() {
     fi
   fi
 
-  local profile
-  profile="${layout_dir}/nix-profile-${version:-unknown}$(_nix_argsum_suffix "$*")"
-  local profile_rc="${profile}.rc"
-
   local in_packages=0
   local attribute=
   local packages=""
-  local extra_args=()
+  local extra_args=(--impure)
 
   local nixfile=
   if [[ -e "shell.nix" ]]; then
@@ -428,60 +393,19 @@ use_nix() {
     esac
   done
 
-  watch_file "$HOME/.direnvrc" "$HOME/.config/direnv/direnvrc" "shell.nix" "default.nix"
-
-  local need_update=0
-  local watches
-  _nix_direnv_watches watches
-  local file=
-  for file in "${watches[@]}"; do
-    if [[ "$file" -nt "$profile_rc" ]]; then
-      need_update=1
-      break
-    fi
-  done
-
-  if [[ ! -e "$profile"
-     || ! -e "$profile_rc"
-     || $need_update -eq 1
-     ]];
-  then
-    if [[ $_nix_direnv_manual_reload -eq 1 && -z "${_nix_direnv_force_reload-}" ]]; then
-      _nix_direnv_warn_manual_reload "$profile_rc"
-     else
-      _nix_clean_old_gcroots "$layout_dir"
-
-      local tmp_profile="${layout_dir}/flake-profile.$$"
-      local tmp_profile_rc
-
-      if [[ -n "$packages" ]]; then
-        extra_args+=("--expr" "with import <nixpkgs> {}; mkShell { buildInputs = [ $packages ]; }")
-      else
-        # figure out what attribute we should build
-        if [[ -z "$attribute" ]]; then
-          extra_args+=("--file" "$nixfile")
-        else
-          extra_args+=("--expr" "(import ${nixfile} {}).${attribute}")
-        fi
-      fi
-
-      mkdir -p "$layout_dir"
-      tmp_profile_rc=$(_nix \
-                       print-dev-env \
-                       --profile "$tmp_profile" \
-                       --impure \
-                       "${extra_args[@]}")
-
-      echo "$tmp_profile_rc" > "$profile_rc"
-      _nix_add_gcroot "$tmp_profile" "$profile"
-      rm -f "$tmp_profile" "$tmp_profile"*
-      _nix_direnv_info "renewed cache"
-
-    fi
+  if [[ -n "$packages" ]]; then
+    extra_args+=("--expr" "with import <nixpkgs> {}; mkShell { buildInputs = [ $packages ]; }")
   else
-    _nix_direnv_info "using cached dev shell"
+    # figure out what attribute we should build
+    if [[ -z "$attribute" ]]; then
+      extra_args+=("--file" "$nixfile")
+    else
+      extra_args+=("--expr" "(import ${nixfile} {}).${attribute}")
+    fi
   fi
 
-  _nix_import_env "$profile_rc"
+  watch_file "shell.nix" "default.nix"
+
+  _nix_direnv_use "nix-${version:-unknown}" "${extra_args[@]}"
 
 }
