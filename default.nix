@@ -1,4 +1,4 @@
-{ stdenv, lib, nix, gnugrep, runCommand, shellcheck, direnv, ruff, mypy, python3 }:
+{ stdenv, lib, nix, runCommand, shellcheck, direnv, ruff, mypy, python3 }:
 
 stdenv.mkDerivation (finalAttrs: {
   name = "nix-direnv";

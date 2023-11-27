@@ -21,12 +21,9 @@ Additionally, lorri can sometimes re-evaluate the entirety of nixpkgs on every c
 
 ## Installation
 
-> **Heads up**: nix-direnv requires a modern Bash and GNU Grep.
-> MacOS ships with outdated or non-GNU versions of these tools,
-> As a work-around we suggest that macOS users install `direnv`/`grep` via Nix or Homebrew.
-> Discussion of these problems can be found
-> [here](https://github.com/nix-community/nix-direnv/issues/3).
-
+> **Heads up**: nix-direnv requires a modern Bash.
+> MacOS ships with bash 3.2 from 2007.
+> As a work-around we suggest that macOS users install `direnv` via Nix or Homebrew.
 There are different ways to install nix-direnv, pick your favourite:
 
 <details>
