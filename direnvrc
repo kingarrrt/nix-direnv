@@ -194,50 +194,61 @@ _nix_direnv_use() {
       profile_rc="${current}/profile.rc"
 
     else
-      # clean old gc roots, layout_dir will not exist on first run
-      if [[ -d "$layout_dir" ]]; then
-        local find_old=(find "$layout_dir" -mindepth 1 -maxdepth 1 ! -name bin)
+      # update the cache
+
+      mkdir -p "$env"
+      local tmp_profile="${profile}.$$"
+      if _nix print-dev-env --profile "$tmp_profile" "$@" >"$profile_rc"; then
+
+        _nix_add_gcroot "$tmp_profile" "$profile"
+        rm -f "$tmp_profile"*
+
+        # if flake add garbage collection root for sources
+        if [[ "$profile_name" == flake ]]; then
+          local flake_inputs="${env}/flake-inputs"
+          mkdir "$flake_inputs"
+          flake_input_paths=$(_nix flake archive \
+            --json --no-write-lock-file \
+            "$flake_dir")
+          while [[ "$flake_input_paths" =~ /nix/store/[^\"]+ ]]; do
+            local store_path="${BASH_REMATCH[0]}"
+            _nix_add_gcroot "${store_path}" "${flake_inputs}/${store_path##*/}"
+            flake_input_paths="${flake_input_paths/${store_path}/}"
+          done
+        fi
+
+        # unconditionally remove manual reload sentinel - it won't be there if not
+        # manually reloading hence "-f"
+        rm -f "$manual_reload"
+
+        local status
+        [[ -d "$current" ]] && status=renewed || status=created
+
+        # clean old gc roots
+        local find_old=(find "$layout_dir" -mindepth 1 -maxdepth 1 -type d \
+                        ! -name bin ! -name "$hash")
         local find_rm=(-exec rm -rf {} \;)
         if [[ $_nix_direnv_keep_days -eq 0 ]]; then
           "${find_old[@]}" "${find_rm[@]}"
         else
           "${find_old[@]}" -mtime +$_nix_direnv_keep_days "${find_rm[@]}"
         fi
+
+        _nix_direnv_info "$status cache"
+
+        # make a link to the current env for use by stale env for manual reload or
+        # cache renewal failure
+        ln --force --no-dereference --symbolic --relative "$env" "$current"
+
+      elif [[ -d "$current" ]]; then
+        _nix_direnv_warning "failed to renew cache - falling back to previous"
+        profile_rc="${current}/profile.rc"
+      else
+        _nix_direnv_fatal "failed to create cache"
       fi
-
-      # We need to update our cache
-      mkdir -p "$env"
-      local tmp_profile="${profile}.$$"
-      _nix print-dev-env --profile "$tmp_profile" "$@" >"$profile_rc"
-
-      _nix_add_gcroot "$tmp_profile" "$profile"
-      rm -f "$tmp_profile"*
-
-      # if flake add garbage collection root for sources
-      if [[ "$profile_name" == flake ]]; then
-        local flake_inputs="${env}/flake-inputs"
-        mkdir "$flake_inputs"
-        flake_input_paths=$(_nix flake archive \
-          --json --no-write-lock-file \
-          "$flake_dir")
-        while [[ "$flake_input_paths" =~ /nix/store/[^\"]+ ]]; do
-          local store_path="${BASH_REMATCH[0]}"
-          _nix_add_gcroot "${store_path}" "${flake_inputs}/${store_path##*/}"
-          flake_input_paths="${flake_input_paths/${store_path}/}"
-        done
-      fi
-
-      # make a link to the current env for use by stale env when manually reloading
-      ln --force --no-dereference --symbolic --relative "$env" "$current"
-
-      # unconditionally remove manual reload sentinel - it won't be there if not
-      # manually reloading hence "-f"
-      rm -f "$manual_reload"
-
-      _nix_direnv_info "renewed cache"
     fi
   else
-    # Our cache is valid, use that"
+    # Our cache is valid, use that
     _nix_direnv_info "using cached dev shell"
   fi
 

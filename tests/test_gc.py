@@ -10,7 +10,7 @@ from .case import TestCase
 class TestGc(TestCase):
     def common_test(self) -> None:
         result = self.direnv_exec("hello")
-        assert "renewed cache" in result.stderr
+        assert "created cache" in result.stderr
         assert "Executing shellHook." in result.stderr
 
         self.nix_run("store", "gc")
@@ -22,7 +22,7 @@ class TestGc(TestCase):
     def common_test_clean(self) -> None:
         self.direnv_exec("hello")
         for cache in self.cache_dirs:
-            files =[path for path in cache.iterdir() if path.is_file()]
+            files = [path for path in cache.iterdir() if path.is_file()]
             rcs = [f for f in files if f.match("*.rc")]
             profiles = [f for f in files if not f.match("*.rc")]
             assert len(rcs) == 1, files

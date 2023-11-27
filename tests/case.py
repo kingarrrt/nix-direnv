@@ -43,7 +43,11 @@ class TestCase:
 
     @property
     def cache_dirs(self) -> list[Path]:
-        return [path for path in self.layout_dir.iterdir() if path.is_dir()]
+        return [
+            path
+            for path in self.layout_dir.iterdir()
+            if path.is_dir() and not path.is_symlink()
+        ]
 
     def _log_output(
         self,
@@ -90,9 +94,6 @@ class TestCase:
     def direnv_exec(self, *cmd: CMD, **env: str) -> subprocess.CompletedProcess:
         return self.run("direnv", "exec", ".", *cmd, **env)
 
-    def direnv_var(self, name: str, **env: str) -> subprocess.CompletedProcess:
-        return self.direnv_exec("sh", "-c", f"echo -n ${name}", **env)
-
     def setup_envrc(
         self, content: str, strict_env: bool, **env: str
     ) -> subprocess.CompletedProcess:
@@ -106,15 +107,16 @@ class TestCase:
         (self.path / ".envrc").write_text(text.strip())
         return self.direnv_run("allow", **env)
 
-    def assert_direnv_var(self, name: str, **env: str) -> subprocess.CompletedProcess:
-        result = self.direnv_var(name, **env)
+    def assert_direnv_var(
+        self, name: str, status: str = "created cache", **env: str
+    ) -> None:
+        result = self.direnv_exec("sh", "-c", f"echo ${name}", **env)
         assert result.stdout == "OK"
-        assert "renewed cache" in result.stderr
-        return result
+        assert status in result.stderr
 
     def assert_usage(self, file: str) -> None:
         result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
+        assert "created cache" in result.stderr
         result = self.direnv_exec("true")
         assert "using cached dev shell" in result.stderr
         self.run("touch", ".envrc")

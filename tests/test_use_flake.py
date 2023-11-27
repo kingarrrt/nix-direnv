@@ -36,8 +36,7 @@ class TestUseFlake(TestCase):
     @pytest.mark.parametrize("strict_env", [False, True])
     def test_env_set(self, strict_env: bool) -> None:
         self.setup_envrc("use flake", strict_env=strict_env)
-        result = self.assert_direnv_var("IS_SET")
-        assert "renewed cache" in result.stderr
+        self.assert_direnv_var("IS_SET")
 
     def _force_refresh(self) -> None:
         self.run("sed", "-i", "1i#", "flake.nix")
@@ -48,7 +47,7 @@ class TestUseFlake(TestCase):
     def test_cache_cleanup(self, strict_env: bool) -> None:
         self.setup_envrc("use flake", strict_env=strict_env)
         result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
+        assert "created cache" in result.stderr
         self._force_refresh()
         caches = self.cache_dirs
         assert len(caches) == 2
@@ -61,7 +60,7 @@ class TestUseFlake(TestCase):
     def test_cache_cleanup_no_retention(self, strict_env: bool) -> None:
         self.setup_envrc("nix_direnv_keep_days 0\nuse flake", strict_env=strict_env)
         result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
+        assert "created cache" in result.stderr
         assert len(self.cache_dirs) == 1
         self._force_refresh()
         assert len(self.cache_dirs) == 1
@@ -70,10 +69,19 @@ class TestUseFlake(TestCase):
     def test_manual_reload(self, strict_env: bool) -> None:
         self.setup_envrc("nix_direnv_manual_reload\nuse flake", strict_env=strict_env)
         result = self.direnv_exec("true")
-        assert "renewed cache" in result.stderr
+        assert "created cache" in result.stderr
         self.run("sed", "-i", "1i#", "flake.nix")
         result = self.direnv_exec("true")
         assert "cache is out of date" in result.stderr
         self.run(self.layout_dir / "bin" / "nix-direnv-reload")
         result = self.direnv_exec("true")
         assert "renewed cache" in result.stderr
+
+    @pytest.mark.parametrize("strict_env", [False, True])
+    def test_cache_renewal_failure(self, strict_env: bool) -> None:
+        self.setup_envrc("use flake", strict_env=strict_env)
+        self.assert_direnv_var("IS_SET")
+        self.run("sed", "-i", "1i#", "flake.nix")
+        self.assert_direnv_var(
+            "IS_SET", "failed to renew cache", NIX_STORE_DIR="/no/such"
+        )
