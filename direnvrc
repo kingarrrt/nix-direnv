@@ -138,11 +138,13 @@ nix_direnv_manual_reload() {
   _nix_direnv_manual_reload=1
 }
 
-_nix_clean_old_gcroots() {
-  local layout_dir=$1
-
-  rm -rf "$layout_dir/flake-inputs/"
-  rm -f "$layout_dir"/{nix,flake}-profile*
+# Usage: nix_direnv_keep_days <number of days>
+#
+# Keep superseded environments that have been accessed within this number of days,
+# default is $_nix_direnv_keep_days
+_nix_direnv_keep_days=7
+nix_direnv_keep_days() {
+  _nix_direnv_keep_days=$1
 }
 
 _nix_add_gcroot() {
@@ -208,7 +210,16 @@ _nix_direnv_use() {
       fi
 
     else
-      _nix_clean_old_gcroots "${layout_dir}"
+      # clean old gc roots, layout_dir will not exist on first run
+      if [[ -d "$layout_dir" ]]; then
+        local find_old=(find "$layout_dir" -mindepth 1 -maxdepth 1 ! -name bin)
+        local find_rm=(-exec rm -rf {} \;)
+        if [[ $_nix_direnv_keep_days -eq 0 ]]; then
+          "${find_old[@]}" "${find_rm[@]}"
+        else
+          "${find_old[@]}" -mtime +$_nix_direnv_keep_days "${find_rm[@]}"
+        fi
+      fi
 
       # We need to update our cache
       mkdir -p "$env"

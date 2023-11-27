@@ -37,6 +37,14 @@ class TestCase:
         shutil.copytree(TEST_ROOT / "testenv", path)
         return path
 
+    @functools.cached_property
+    def layout_dir(self) -> Path:
+        return self.path / ".direnv"
+
+    @property
+    def cache_dirs(self) -> list[Path]:
+        return [path for path in self.layout_dir.iterdir() if path.is_dir()]
+
     def _log_output(
         self,
         result: subprocess.CompletedProcess | subprocess.CalledProcessError,

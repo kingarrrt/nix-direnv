@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -37,3 +38,30 @@ class TestUseFlake(TestCase):
         self.setup_envrc("use flake", strict_env=strict_env)
         result = self.assert_direnv_var("IS_SET")
         assert "renewed cache" in result.stderr
+
+    def _force_refresh(self) -> None:
+        self.run("sed", "-i", "1i#", "flake.nix")
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr
+
+    @pytest.mark.parametrize("strict_env", [False, True])
+    def test_cache_cleanup(self, strict_env: bool) -> None:
+        self.setup_envrc("use flake", strict_env=strict_env)
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr
+        self._force_refresh()
+        caches = self.cache_dirs
+        assert len(caches) == 2
+        for cache in caches:
+            os.utime(cache, (0, 0))
+        self._force_refresh()
+        assert len(self.cache_dirs) == 1
+
+    @pytest.mark.parametrize("strict_env", [False, True])
+    def test_cache_cleanup_no_retention(self, strict_env: bool) -> None:
+        self.setup_envrc("nix_direnv_keep_days 0\nuse flake", strict_env=strict_env)
+        result = self.direnv_exec("true")
+        assert "renewed cache" in result.stderr
+        assert len(self.cache_dirs) == 1
+        self._force_refresh()
+        assert len(self.cache_dirs) == 1

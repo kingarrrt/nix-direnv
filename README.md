@@ -277,6 +277,21 @@ To reload your nix environment, use the `nix-direnv-reload` command:
 $ nix-direnv-reload
 ```
 
+#### Superseded environment retention
+
+By default nix-direnv keeps superseded environments for 7 days in case they are needed
+again. This is configurable with `nix_direnv_keep_days`:
+
+```shell
+nix_direnv_keep_days 3
+```
+
+To disable superseded environment retention:
+
+```shell
+nix_direnv_keep_days 0
+```
+
 ##### Known arguments
 
 - `-p`: Starts a list of packages to install; consumes all remaining arguments

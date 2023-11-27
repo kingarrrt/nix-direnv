@@ -47,6 +47,8 @@ ignore = [
   "G004",
   # disabled on ruff's recommendation as causes problems with the formatter
   "ISC001",
+  # Magic value used in comparison, consider replacing
+  "PLR2004",
   # Use of `assert` detected
   "S101",
   # `subprocess` call: check for execution of untrusted input
