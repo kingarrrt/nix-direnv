@@ -10,6 +10,9 @@
   nixConfig.extra-trusted-public-keys = [ "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=" ];
 
   outputs = inputs @ { flake-parts, ... }:
+    let
+      min_nix_version = "2.4";
+    in
     flake-parts.lib.mkFlake { inherit inputs; }
       ({ lib, ... }: {
         imports = [ ./treefmt.nix ];
@@ -20,33 +23,53 @@
           "x86_64-darwin"
           "aarch64-darwin"
         ];
-        perSystem = { config, pkgs, self', ... }: {
-          packages = {
-            nix-direnv = pkgs.callPackage ./default.nix { };
-            default = config.packages.nix-direnv;
-            test-runner-stable = pkgs.callPackage ./test-runner.nix {
-              nixVersion = "stable";
-            };
-            test-runner-unstable = pkgs.callPackage ./test-runner.nix {
-              nixVersion = "unstable";
-            };
+        perSystem = { config, pkgs, self', ... }:
+          let
+            nixVersions =
+              builtins.filter
+                (
+                  version:
+                  let
+                    pkg = pkgs.nixVersions.${version};
+                  in
+                  (builtins.tryEval pkg).success
+                  && builtins.isAttrs pkg
+                  && pkg ? version
+                  && builtins.compareVersions pkg.version min_nix_version >= 0
+                )
+                (builtins.attrNames pkgs.nixVersions);
+          in
+          {
+            packages = {
+              nix-direnv = pkgs.callPackage ./default.nix { };
+              default = config.packages.nix-direnv;
+            } // lib.mapAttrs' (version: test: lib.nameValuePair "test-runner-${version}" test) (
+              lib.genAttrs nixVersions
+                (version: pkgs.callPackage ./test-runner.nix {
+                  pkg = config.packages.default;
+                  nix = pkgs.nixVersions.${version};
+                })
+            );
+            devShells = {
+              default = pkgs.callPackage ./shell.nix {
+                pkg = config.packages.default;
+                packages = [ config.treefmt.build.wrapper ];
+              };
+            } // lib.mapAttrs' (version: shell: lib.nameValuePair version shell) (
+              lib.genAttrs nixVersions
+                (version: config.devShells.default.override {
+                  pkg = config.packages.default.override {
+                    nix = pkgs.nixVersions.${version};
+                  };
+                })
+            );
+            checks =
+              let
+                packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") self'.packages;
+                devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") self'.devShells;
+              in
+              packages // devShells;
           };
-          devShells.default = pkgs.callPackage ./shell.nix {
-            pkg = config.packages.default;
-            packages = [ config.treefmt.build.wrapper ];
-          };
-          apps.test-runner = {
-            type = "app";
-            program = "${config.packages.test-runner}";
-          };
-
-          checks =
-            let
-              packages = lib.mapAttrs' (n: lib.nameValuePair "package-${n}") self'.packages;
-              devShells = lib.mapAttrs' (n: lib.nameValuePair "devShell-${n}") self'.devShells;
-            in
-            packages // devShells;
-        };
         flake = {
           overlays.default = final: _prev: {
             nix-direnv = final.callPackage ./default.nix { };

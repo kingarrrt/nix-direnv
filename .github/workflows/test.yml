@@ -7,20 +7,34 @@ on:
       - staging
       - trying
 jobs:
+  test-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.set-matrix.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/action
+      - id: set-matrix
+        run: make github-test-matrix
   tests:
+    needs: test-matrix
     strategy:
+      fail-fast: false
       matrix:
-        os: [ ubuntu-latest ]
-        # FIXME macos garbage currently collect also nix-shell that runs the test
-        #os: [ ubuntu-latest, macos-latest ]
-        nix: [ stable, unstable ]
+        os:
+          - macos-latest
+          - ubuntu-latest
+        test: ${{ fromJson(needs.test-matrix.outputs.tests) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-    - uses: cachix/install-nix-action@v23
-      with:
-        nix_path: nixpkgs=channel:nixpkgs-unstable
-        extra_nix_config: |
-          experimental-features = nix-command flakes
-    - run:
-        "nix run --accept-flake-config .#test-runner-${{ matrix.nix }}"
+      - uses: actions/checkout@v4
+      - uses: ./.github/action
+      - run: nix develop .#${{ matrix.test }} --command make test-cov ARGV=--pretty
+        # to support pretty output
+        shell: nix shell "nixpkgs#expect" --command unbuffer bash {0}
+        env:
+          TERM: linux
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.test }}
+          path: coverage
