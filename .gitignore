@@ -1,7 +1,3 @@
-.direnv/
+/.checks.mk
+/.direnv/
 /template/flake.lock
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class

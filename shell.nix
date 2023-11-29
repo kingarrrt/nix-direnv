@@ -1,11 +1,7 @@
-{ pkgs ? import <nixpkgs> { }, packages ? [ ] }:
+{ pkgs ? import <nixpkgs> { }, pkg ? pkgs.callPackage ./default.nix { }, packages ? [ ] }:
 
 with pkgs;
 mkShell {
-  packages = packages ++ [
-    python3.pkgs.pytest
-    python3.pkgs.mypy
-    ruff
-    direnv
-  ];
+  inputsFrom = [ pkg ];
+  inherit packages;
 }

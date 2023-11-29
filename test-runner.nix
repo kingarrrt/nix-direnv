@@ -1,16 +1,18 @@
 { writeShellScriptBin
-, direnv
-, python3
 , lib
-, coreutils
-, gnugrep
-, nixVersions
-, nixVersion
+, pkg
+, gnumake
+, bash
+, nix
+, jq
 }:
-writeShellScriptBin "test-runner-${nixVersion}" ''
-  set -e
-  export PATH=${lib.makeBinPath [ direnv nixVersions.${nixVersion} coreutils gnugrep ]}
-
-  echo run unittest
-  ${lib.getExe' python3.pkgs.pytest "pytest"} .
+writeShellScriptBin "test-runner-${nix.version}" ''
+  export PATH=${lib.makeBinPath (pkg.nativeBuildInputs ++ [
+    gnumake
+    # XXX: these should come from pkg.nativeBuildInputs, but don't... IDK why.
+    bash
+    nix
+    jq
+  ]) }
+  make test ARGV="$*"
 ''

@@ -32,6 +32,7 @@
             };
           };
           devShells.default = pkgs.callPackage ./shell.nix {
+            pkg = config.packages.default;
             packages = [ config.treefmt.build.wrapper ];
           };
           apps.test-runner = {
