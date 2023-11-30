@@ -31,7 +31,9 @@
               nixVersion = "unstable";
             };
           };
-          devShells.default = pkgs.callPackage ./shell.nix { };
+          devShells.default = pkgs.callPackage ./shell.nix {
+            packages = [ config.treefmt.build.wrapper ];
+          };
           apps.test-runner = {
             type = "app";
             program = "${config.packages.test-runner}";
