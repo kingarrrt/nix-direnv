@@ -4,7 +4,10 @@ setup_suite() {
 
   TEST_ENV="$BATS_TEST_DIRNAME/testenv"
 
-  DIRENVRC="$PROJECT_ROOT/direnvrc"
+  # XXX: bashcov won't report on direnvrc unless it has a shebang
+  DIRENVRC="$BATS_TEST_DIRNAME/direnvrc"
+  echo "#!/usr/bin/env bash" > "$DIRENVRC"
+  cat "$PROJECT_ROOT/direnvrc" >> "$DIRENVRC"
 
   export PROJECT_ROOT TEST_ENV DIRENVRC
 

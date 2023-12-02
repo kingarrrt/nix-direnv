@@ -1,3 +1,4 @@
 /.checks.mk
 /.direnv/
+/coverage/
 /template/flake.lock

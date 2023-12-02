@@ -24,9 +24,15 @@ export BATS_FILE_EXTENSION = bash
 
 TEST_PATH ?= tests
 
+TEST = $(strip bats $(ARGV) $(TEST_PATH))
+
 .PHONY: test
 test: override ARGV += -j $(NIX_BUILD_CORES)
 test:
-	$(strip bats $(ARGV) $(TEST_PATH))
+	$(TEST)
+
+.PHONY: test-cov
+test-cov: TEST := rm -rf coverage && bashcov --bash-path $$(command -v bash) -- $(TEST)
+test-cov: test
 
 # }}}
