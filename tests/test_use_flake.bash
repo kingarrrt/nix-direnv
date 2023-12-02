@@ -16,3 +16,13 @@ USE="use flake"
   refute_setup_envrc "$USE --impure ." "$message"
   # refute_error --partial "$did_you_mean"
 }
+
+@test "manual reload" {
+  assert_setup_envrc "nix_direnv_manual_reload; $USE" "cache does not exist"
+  .direnv/bin/nix-direnv-reload
+  assert_direnv_exec "$USING_CACHED"
+  touch .envrc
+  assert_direnv_exec "cache is out of date"
+  .direnv/bin/nix-direnv-reload
+  assert_direnv_exec "$USING_CACHED"
+}
